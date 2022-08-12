@@ -1,0 +1,471 @@
+---
+title: "Who's hunting turkeys in Nebraska? A walk through the numbers"
+author: "Chris Chizinski, Matt Gruntorad<br>University of Nebraska - Lincoln<br>August 15, 2022"
+title-slide-attributes: # this is if you want a background image on the title screen. Use the right path to the image you want
+  data-background-image: "img/mana5280-MKSpukYszms-unsplash.jpg"
+  data-background-opacity: "0.65"
+format: 
+  revealjs:
+    theme: [dark, custom.scss]
+    footer: "[humandimensions.unl.edu](https://humandimensions.unl.edu)&nbsp;&nbsp;&nbsp;"
+    transition: fade
+    width: 1600
+    height: 900
+    self-contained: true
+editor: visual
+execute:
+  echo: false
+---
+
+### Partial funding from FW-23-R, administered by NGPC
+
+![](img/fishwild.png){fig-align="center" width="273"}
+
+## Nebraska's seasons
+
+```{r}
+#| label: libraryload
+
+library(DBI)
+library(odbc)
+library(tidyverse)
+library(dbplyr)
+library(lubridate)
+library(tidycensus)
+
+
+```
+
+```{r}
+#| label: dataload
+
+theme_quarto <- function(base_size = 18, base_family = "Chivo") {
+  
+  theme_classic(base_size = base_size, base_family = base_family) %+replace%
+    theme(
+      panel.grid.minor = element_blank(),
+      axis.ticks = element_line(color = "#d0d0d0"),
+      text = element_text(family = "Chivo", size = base_size),
+      axis.text = element_text(face = "bold", color = "white", size = base_size),
+      axis.title = element_text(face = "bold", size = rel(1.33), color = "white"),
+      axis.title.x = element_text(margin = margin(0.5, 0, 0, 0, unit = "cm"), color = "white"),
+      axis.title.y = element_text(margin = margin(0, 0.5, 0, 0, unit = "cm"), angle =90,color = "white"),
+      plot.title = element_text(face = "bold", size = rel(1.67), hjust = 0,color = "white"),
+      plot.title.position = "plot",
+      plot.subtitle = element_text(size = 16, margin = margin(0.2, 0, 1, 0, unit = "cm"), hjust = 0,color = "white"),
+      plot.caption = element_text(size = 10, margin = margin(1, 0, 0, 0, unit = "cm"), hjust = 1, color = "white"),
+      plot.background = element_blank(),
+      legend.background = element_blank(),
+      # plot.background = element_rect(fill = "#242423", color = NA),
+      panel.background = element_blank(),
+      axis.line =  element_line(color = "#d0d0d0"),
+      panel.border = element_blank(),
+      plot.margin = margin(0.5, 1, 0.5, 1, unit = "cm"),
+      strip.background = element_blank(),
+      strip.text = element_text(size = rel(1.33), face = "bold", color = "#ffff00"),
+      legend.text = element_text(size = rel(1.33), face = "bold", color = "white"),
+      legend.title = element_text(size = rel(1.33), face = "bold", color = "#ffff00")
+    )
+}
+
+con <- dbConnect(odbc::odbc(),
+                 Driver    = 'ODBC Driver 17 for SQL Server',
+                 Server    = 'localhost',
+                 database = "permits_22701",
+                 UID = 'sa',
+                 PWD = '1122CjC77!!',  # <- use single quotes
+                 Port      = 1433)
+
+# con <- dbConnect(odbc::odbc(),
+#                   Driver    = "FreeTDS",
+#                   Server    = "snr-2268.unl.edu\\SQLEXPRESS",
+#                   Database = "NGPC_Permits202207",
+#                   UID = keyring::key_get("HuntFishAppUID"), 
+#                   PWD = keyring::key_get("HuntFishAppPWD"),  # need to change this
+#                   Port      = 1433)
+
+tbl(con, "GrandPermitsTbl") |> 
+  filter(permitType == "Fall Turkey" | permitType == "Spring Turkey") |>
+  group_by(customerUID, permitType) |> 
+  count() |> 
+  pivot_wider(names_from = permitType, values_from = n, values_fill = list(n = 0)) |> 
+  mutate(turkeyType = case_when( `Fall Turkey` > 0 & `Spring Turkey` > 0 ~ "Both",
+                                 `Fall Turkey` == 0 ~ "Spring",
+                                 `Spring Turkey` == 0 ~ "Fall")) -> turkeyPermitHolders
+turkeyPermitHolders |> 
+  ungroup() |> 
+  summarise(distinct_users = n_distinct(customerUID),
+            ttl_permits = sum(`Spring Turkey`) + sum(`Fall Turkey`)) |> 
+  collect() -> overall_stats
+
+
+turkeyPermitHolders |> 
+  ungroup() |> 
+  summarise(ttl_Fall = sum(`Fall Turkey`), 
+            ttl_Spring = sum(`Spring Turkey`)) |> 
+  collect() |> 
+  mutate(spring_perc = sprintf(ttl_Spring/ (ttl_Fall + ttl_Spring)*100,fmt = '%#.1f')) -> num_perc_spring
+
+turkeyPermitHolders |> 
+  group_by(turkeyType) |> 
+  count() |> 
+  ungroup() |> 
+  collect() |> 
+  mutate(perc = sprintf(n/ sum(n)*100,fmt = '%#.1f')) -> num_perc_type
+
+## Drop fall turkey hunting
+tbl(con, "GrandPermitsTbl") |> 
+  filter(permitType == "Spring Turkey") |> 
+  select(customerUID, permitYear) |> 
+  left_join(tbl(con, "GrandCustomerTbl") |> 
+              select(customerUID, sex, resident), by = "customerUID") -> turkeyYear
+ 
+turkeyYear |> 
+  collect() |> 
+  group_by(permitYear, resident) |> 
+  summarise(ind = n_distinct(customerUID),
+            permits = length(customerUID)) |> 
+  pivot_longer(ind:permits, names_to = "type", values_to = "values") |> 
+  
+  group_by(permitYear, type) |> 
+  mutate(ttl = sum(values),
+         prop = values/ttl) |> 
+  filter(resident == "T") -> res_permits
+
+
+turkeyYear |> 
+  group_by(customerUID, permitYear, resident) |>
+  count() |> 
+  mutate(n = 1) |> 
+  collect() |>
+  pivot_wider(names_from = permitYear, values_from = n, values_fill = list(n = 0)) %>% 
+  pivot_longer(c(-customerUID, -resident), names_to = "year", values_to = "purch") %>% 
+  mutate(year = as.numeric(year)) %>% 
+  arrange(customerUID, year) -> turkeyYearComplete 
+
+turkeyYearComplete |> 
+  group_by(customerUID) %>% 
+  mutate(purch_1 = lead(purch),
+         purch_lead = ifelse(purch + purch_1 == 2, 1, 0)) %>% 
+  filter(!is.na(purch_lead)) %>% 
+  group_by(resident, year) %>% 
+  summarise(ttl_purch = sum(purch),
+            ttl_purch_t1 = sum(purch_lead)) %>% 
+  mutate(churn_rate = (1 - (ttl_purch_t1/ttl_purch))*100) -> turkey_churn
+
+## often permits
+
+turkeyYearComplete |> 
+  group_by(customerUID) |> 
+  mutate(test = case_when(purch == 1 ~ year),
+         earliest = min(test, na.rm = T)) |> 
+  filter(year >=  earliest,
+         earliest != 2022,
+         !is.na(resident)) |> 
+  select(-test, -earliest) |> 
+  group_by(customerUID,resident) |>
+  summarise(yearsPurchased = sum(purch),
+            ttlYears = n()) |> 
+  mutate(avgPurch = yearsPurchased/ttlYears,
+         avgPurch5 = avgPurch*5) -> avgTurkPurchases
+
+avgTurkPurchases |> 
+  group_by(resident) |>
+  summarise(avgPurch2 = mean(avgPurch),
+            purch5 = avgPurch2*5) -> purchRates
+
+avgTurkPurchases |> 
+  filter(ttlYears >= 3) |> 
+  group_by(resident) |> 
+  arrange(avgPurch5) |> 
+  mutate(id = row_number(),
+         id2 =id/max(id)) -> cumul_turkey
+
+## R3 type
+
+turkeyYearComplete |>
+  filter(purch ==1) |>
+  group_by(customerUID)  |>
+  mutate(lag_year = lag(year))  |>
+  filter(year != 2010) -> indiv_last_purch
+
+
+indiv_last_purch %>%
+  filter(resident != "F") |>
+  mutate(yr_diff = year - lag_year,
+         r3_type = case_when(is.na(yr_diff)~ "recruited",
+                             yr_diff == 1 ~ "retained",
+                             yr_diff > 1 ~ "reactivated")) -> R3_types
+
+R3_types %>%
+  group_by(year, r3_type) %>%
+  count() %>%
+  ungroup() %>%
+  complete(year, nesting(r3_type), fill = list(n = 0)) %>%
+  group_by(year) %>%
+  mutate(TTL = sum(n)) %>%
+  ungroup() %>%
+  mutate(perc = (n/TTL)*100) %>%
+  filter(year != 2011) -> R3_perc
+
+## ACS data
+
+census_api_key("6d3e5a8d423233a3f411b195f2fe5c01a732659d")
+
+geo_codes <- arrow::read_parquet("/Volumes/EnvoyPro/data/geocoded_customer.parquet")  ## Needs to get moved to the database
+
+R3_types |> 
+  inner_join(geo_codes, by = "customerUID") |> 
+  select(customerUID, year, r3_type, census_tract_id_2010) -> turkey_geo
+
+variables_to_get <- c(
+  median_value = "B25077_001",
+  median_income = "DP03_0062",
+  total_population = "B01003_001",
+  median_age = "B01002_001",
+  pct_college = "DP02_0068P",
+  pct_foreign_born = "DP02_0094P",
+  pct_white = "DP05_0077P"
+)
+
+
+ne_tract_demog <- get_acs(geography = "tract", 
+              variables = variables_to_get, 
+              state = "NE", 
+              year = 2020)
+
+ne_demog <- get_acs(geography = "state", 
+              variables = variables_to_get, 
+              state = "NE", 
+              year = 2020) |> 
+  rename(r3_type = NAME) |> 
+  select(-GEOID)
+
+turkey_geo |> 
+  left_join(ne_tract_demog, by = c("census_tract_id_2010" = "GEOID")) |> 
+  filter(!is.na(variable), year >= 2018) |> 
+  select(-NAME) |> 
+  group_by(r3_type, variable) |> 
+  summarise(estimate = mean(estimate, na.rm = TRUE),
+            moe = NA) -> turkey_r3_demog
+
+state_turkey <- bind_rows(turkey_r3_demog, ne_demog) |> 
+  mutate(fill = ifelse(r3_type == "Nebraska", "1", "0"),
+         r3_type = factor(r3_type, levels = c("recruited","retained","reactivated", "Nebraska")))
+
+```
+
+::: columns
+::: column
+-   Two seasons
+    -   Spring: 1 male or bearded female per permit
+    -   Fall: 2 turkeys per permit
+-   Spring is the the most popular season
+    -   Permits: `r paste0(num_perc_spring$spring_perc,"%")`
+    -   Individuals: `r paste0(num_perc_type$perc[num_perc_type$turkeyType =="Spring"],"%")`
+:::
+
+::: column
+![](img/ElvisTurkey.png){width="403"}
+:::
+:::
+
+## The numbers
+
+```{r }
+#| label = fig_turknumbers,
+#| fig.width = 12,
+#| fig.height = 6,
+#| dev.args = list(bg = 'transparent'),
+#| fig.align =  'center'
+
+
+
+new_strp_text <- c("ind" = "Individuals", "permits" = "Permits")
+
+ggplot(data = res_permits) +
+  geom_col(aes(x = permitYear, y = ttl), fill = "#007197", color = "black") +
+  geom_col(aes(x = permitYear, y = values), fill = "#b32d9c", color = "black") +
+  coord_cartesian(ylim = c(0,40000), xlim = c(2009.5, 2022.5), expand = F) +
+  labs(x = "Hunting season", y = "Number") +
+  scale_x_continuous(breaks = 2010:2022)+
+  scale_y_continuous(labels = scales::comma) +
+  facet_wrap(~type, ncol = 1,labeller = labeller(type = new_strp_text)) +
+  theme_quarto()
+  
+```
+
+::: aside
+[Non-resident]{style="color:#007197"}, [Resident]{style="color:#b32d9c"}; Unique hunters: `r format(overall_stats$distinct_users, big.mark=",")`, Total permits: `r format(overall_stats$ttl_permits, big.mark=",")`
+:::
+
+## The Pandemic
+
+::: columns
+::: column
+[![](img/jwm.png){width="403"}](https://wildlife.onlinelibrary.wiley.com/doi/full/10.1002/jwmg.22202)
+:::
+
+::: column
+::: {style="font-size: 0.47em"}
+|                                               | Coefficient | P value | Odds ratio | Effect Size |
+|----------------------------|:---------:|:---------:|:---------:|:---------:|
+| COVID-19 outbreak affected spring turkey hunt |    1.40     | \<0.001 |    4.07    |   Medium    |
+| COVID-19 effect on precautions taken          |    0.66     | \<0.001 |    1.93    |   Medium    |
+| COVID-19 effect on overall satisfaction       |    −0.81    | \<0.001 |    0.45    |    Small    |
+| COVID-19 effect on pre-season planning        |    0.90     | \<0.001 |    2.45    |    Small    |
+| COVID-19 onset affected plans                 |    1.50     | \<0.001 |    4.44    |   Medium    |
+| COVID-19 reason to not hunt                   |    1.52     |  0.02   |    4.57    |   Medium    |
+:::
+:::
+:::
+
+## Hunters from all over
+
+![](img/zip_map_turk.png){fig-align="center" width="854"}
+
+## Churn rates
+
+```{r}
+#| label = fig_churn,
+#| fig.width = 12,
+#| fig.height = 6,
+#| dev.args = list(bg = 'transparent'),
+#| fig.align =  'center'
+
+ggplot(data = turkey_churn |> filter(!is.na(resident))) +
+  geom_point(aes(x = year, y = churn_rate/100, color = resident), size = 5) +
+  geom_line(aes(x = year, y = churn_rate/100, color = resident), size = 1, linetype = "solid") +
+  coord_cartesian(ylim = c(0,1), xlim = c(2009.5, 2021.5), expand = F) +
+  labs(x = "Hunting season", y = "Churn rate", color = "Resident") +
+  scale_color_manual(values = c("T"= "#007197", "F"="#b32d9c"))+
+  scale_x_continuous(breaks = 2010:2022) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_quarto() +
+  theme(legend.position = c(0.15,0.85))
+
+```
+
+::: aside
+Spring turkey permits only.
+:::
+
+## Sporadic purchases
+
+```{r}
+#| label = fig_percbuy,
+#| fig.width = 12,
+#| fig.height = 6,
+#| dev.args = list(bg = 'transparent'),
+#| fig.align =  'center'
+
+new_strp_text <- c("T" = "Resident", "F" = "Non-resident")
+
+ggplot(data = cumul_turkey) + 
+  geom_segment(aes(x = 1- id2, xend= 1 - id2, y = 0, yend =  avgPurch5, color = resident)) + 
+  facet_wrap(~resident, ncol = 1,labeller = labeller(resident = new_strp_text)) +
+  scale_x_continuous(breaks = seq(0,1 , by = 0.1), label = scales::percent) +
+  scale_color_manual(values = c("T"= "#007197", "F"="#b32d9c"))+
+  labs(x = "Percentage of population", y = "Avg years purchasing\npermit in 5-yr period") +
+  coord_cartesian(xlim = c(0,1), ylim = c(0,5), expand = FALSE) +
+  theme_quarto() +
+  theme(legend.position = "none")
+```
+
+::: aside
+<br> Sample limited to 3+ years potential purchase
+
+Resident: `r round(purchRates$purch5[purchRates$resident == "T"],digits = 1)` permits/5yrs; Non-resident: `r round(purchRates$purch5[purchRates$resident == "F"],digits = 1)` permits/5yrs
+:::
+
+## R3 Type by year
+
+```{r}
+#| label = fig_r3type,
+#| fig.width = 12,
+#| fig.height = 6,
+#| dev.args = list(bg = 'transparent'),
+#| fig.align =  'center'
+
+ggplot(data = R3_perc) +
+  geom_line(aes(x = year, y = perc/100, color = r3_type), size = 1) +
+  geom_point(aes(x = year, y = perc/100, color = r3_type), size = 4) +
+  # geom_col(aes(x = year, y = perc/100, fill = r3_type), color = "black", position = "stack") +
+  coord_cartesian(ylim = c(0,1), xlim = c(2011.5, 2022.5), expand = F) +
+  labs(x = "Hunting season", y = "Percentage of resident\nspring turkey hunters") +
+  scale_x_continuous(breaks = 2012:2022)+
+  scale_y_continuous(breaks = seq(0,1, by = 0.10), labels = scales::percent) +
+  theme_quarto() +
+  theme(legend.position = c(0.15,0.85),
+        legend.title = element_blank())
+```
+
+## Demography
+
+```{r}
+#| label = fig_demog,
+#| fig.width = 12,
+#| fig.height = 6,
+#| dev.args = list(bg = 'transparent'),
+#| fig.align =  'center'
+
+new_strp_text <- c("median_age" = "Median Age",
+                   "median_income" = "Median Income",
+                   "median_value" = "Median House Value",
+                   "pct_college" = "% College",
+                   "pct_foreign_born" = "% Foreign born",
+                   "pct_white" = "% White"
+                )
+
+fake_data <- data.frame(estimate = c(0,50,
+                                     0,80000,
+                                     0,200000,
+                                     0,40,
+                                     0,8,
+                                     0,100),
+                        variable = c("median_age", "median_age",
+                                     "median_income", "median_income",
+                                     "median_value", "median_value",
+                                     "pct_college", "pct_college",
+                                     "pct_foreign_born", "pct_foreign_born",
+                                     "pct_white", "pct_white"),
+                        r3_type = rep(c(0.5,4.5), times =6))
+
+fill_vals <- c("1" = "#002A86", "0" = "#FFCC00")
+
+ggplot(data = state_turkey |> filter(variable != "total_population")) + 
+  geom_col(aes(x= r3_type, y = estimate, fill = fill), color = "black") + 
+  geom_blank(data = fake_data, aes(x= r3_type, y = estimate)) + 
+  scale_fill_manual(values = fill_vals) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = "Group", y = "Estimate from 2020 5yr ACS") + 
+  coord_cartesian(expand = FALSE) + 
+  facet_wrap(~variable, scales = "free_y", labeller = labeller(variable = new_strp_text), ncol =2 ) +
+  theme_quarto() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(size = 10))
+```
+
+## Wrap up
+
+-   Turkey hunting is a big draw both in state and out of state
+
+-   Pandemic affected turkey hunting participation - still being felt
+
+-   Turkey hunters are a lot like many other types of hunters
+
+-   Changes may be coming!
+
+## 
+
+::: columns
+::: column
+![](img/2021-03-10_FishHunt2.png){fig-align="center" width="389"}
+
+email:cchizinski2\@unl.edu twitter:@chrischizinski
+:::
+
+::: column
+![](img/2021-03-10_FishHunt2.png){fig-align="center"}
+:::
+:::

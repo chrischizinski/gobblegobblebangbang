@@ -1,0 +1,57 @@
+/*-- scss:defaults --*/
+$font-family-sans-serif: "Chivo";
+$body-bg: #242423;
+$body-color: #fefdfa;
+$link-color: #42a7c6;
+$presentation-heading-color: #d00000;
+$code-color: #cc0000;
+$code-block-bg: #ded9ca;
+$code-block-border-color: #000000;
+
+/*-- scss:rules --*/
+
+.reveal section h3 {
+  text-align: center;
+  color: $body-color;
+  margin-bottom: 50px;
+}
+
+.reveal .slide-number {
+  color: $link-color;
+}
+
+.reveal .footer {
+  font-size: 0.35em !important;
+  text-align: right !important;
+}
+
+.reveal .slides section .fragment.semi-fade-out {
+	opacity: 1;
+	visibility: inherit;
+
+	&.visible {
+		opacity: 0.25;
+		visibility: inherit;
+	}
+}
+
+.sectionhead {
+  font-size: 1em;
+  text-align: center;
+  color: $presentation-heading-color;
+  font-family: $presentation-heading-font;
+  background-color: $body-bg;
+  margin: 1px;
+  padding: 2px 2px 2px 2px;
+  width: 120px;
+  border-left: 10px solid;
+}
+
+.blackbox {
+  color: #000000;
+  background-color: transparent;
+  margin: 1px;
+  padding: 5px 2px 5px 2px;
+  height: 205px;
+  border: 2px solid;
+}
