@@ -68,21 +68,7 @@ theme_quarto <- function(base_size = 18, base_family = "Chivo") {
     )
 }
 
-con <- dbConnect(odbc::odbc(),
-                 Driver    = 'ODBC Driver 17 for SQL Server',
-                 Server    = 'localhost',
-                 database = "permits_22701",
-                 UID = 'sa',
-                 PWD = '1122CjC77!!',  # <- use single quotes
-                 Port      = 1433)
-
-# con <- dbConnect(odbc::odbc(),
-#                   Driver    = "FreeTDS",
-#                   Server    = "snr-2268.unl.edu\\SQLEXPRESS",
-#                   Database = "NGPC_Permits202207",
-#                   UID = keyring::key_get("HuntFishAppUID"), 
-#                   PWD = keyring::key_get("HuntFishAppPWD"),  # need to change this
-#                   Port      = 1433)
+## Create connection
 
 tbl(con, "GrandPermitsTbl") |> 
   filter(permitType == "Fall Turkey" | permitType == "Spring Turkey") |>
@@ -210,8 +196,6 @@ R3_types %>%
 
 ## ACS data
 
-census_api_key("6d3e5a8d423233a3f411b195f2fe5c01a732659d")
-
 geo_codes <- arrow::read_parquet("/Volumes/EnvoyPro/data/geocoded_customer.parquet")  ## Needs to get moved to the database
 
 R3_types |> 
@@ -319,6 +303,10 @@ ggplot(data = res_permits) +
 :::
 :::
 :::
+
+## Motivations
+
+![](img/brooks-rice-8-jqqr-rpo0-unsplash.jpg){fig-align="center"}
 
 ## Hunters from all over
 
@@ -456,16 +444,18 @@ ggplot(data = state_turkey |> filter(variable != "total_population")) +
 
 -   Changes may be coming!
 
-## 
+## Thank you!
 
 ::: columns
 ::: column
-![](img/2021-03-10_FishHunt2.png){fig-align="center" width="389"}
+![](img/2021-03-10_FishHunt2.png){fig-align="center" width="630"}
 
 email:cchizinski2\@unl.edu twitter:@chrischizinski
 :::
 
 ::: column
-![](img/2021-03-10_FishHunt2.png){fig-align="center"}
+![](img/qr.svg){fig-align="center" width="630"}
+
+Scan with your phone for access to slides
 :::
 :::
